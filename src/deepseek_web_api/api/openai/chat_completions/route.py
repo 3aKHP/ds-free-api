@@ -79,6 +79,8 @@ async def chat_completions(request: Request):
     search_enabled = extra.get("search_enabled", False)
     # Model-specific override: reasoning model enables thinking by default
     thinking_enabled = extra.get("thinking_enabled", "reasoner" in validated.model)
+    # Expert mode: any model name containing "expert" routes to expert mode
+    model_type = extra.get("model_type", "expert" if "expert" in validated.model else "default")
 
     pool = await get_pool()
 
@@ -116,7 +118,7 @@ async def chat_completions(request: Request):
                 try:
                     async for chunk in stream_generator(
                         prompt, validated.model, search_enabled, thinking_enabled,
-                        validated.tools, session
+                        validated.tools, session, model_type
                     ):
                         if not started_yielding:
                             buffered.append(chunk)
@@ -207,7 +209,7 @@ async def chat_completions(request: Request):
         try:
             async for chunk in stream_generator(
                 prompt, validated.model, search_enabled, thinking_enabled,
-                validated.tools, session
+                validated.tools, session, model_type
             ):
                 chunks.append(chunk)
             break  # Success

@@ -37,6 +37,7 @@ uv run python main.py
 host = "127.0.0.1"                  # 建议保持 loopback，仅本机访问
 port = 5001
 reload = true
+api_key = ""                        # 旧版单 token 兼容入口（环境变量: DEEPSEEK_WEB_API_KEY）
 cors_origins = ["*"]                 # 建议改成明确白名单
 cors_allow_credentials = false
 cors_allow_methods = ["*"]
@@ -45,6 +46,7 @@ pool_size = 10                       # 最大并发 DeepSeek session 数（环�
 pool_acquire_timeout = 30.0          # 等待可用 session 的超时秒数，超时返回 503（环境变量: DEEPSEEK_WEB_POOL_ACQUIRE_TIMEOUT）
 
 [auth]
+required = false                    # 为 true 时，/v0 和 /v1 必须通过本地鉴权
 tokens = []                          # 配置一个或多个 token 启用鉴权
 # 示例: tokens = ["sk-prod-xxx", "sk-backup-yyy"]
 
@@ -57,11 +59,28 @@ token = ""                         # 非必须，系统会自动管理（首次�
 ```
 
 **安全提示**：
-- `[auth].tokens` 是简单的字符串数组。非空数组表示需要鉴权；空数组表示匿名访问（仅在 loopback 时安全）。
-- 只要配置了至少一个 token，所有 `/v0/*` 和 `/v1/*` 请求都必须携带 `Authorization: Bearer <token>` 或 `X-API-Key: <token>`。
-- **Fail-fast 保护**: 如果 `[server].host` 是非 loopback（如 `0.0.0.0`）且 `[auth].tokens` 为空，服务将拒绝启动。
+- 生产环境也支持通过环境变量注入敏感配置，如 `DEEPSEEK_WEB_AUTH_TOKENS_JSON`、`DEEPSEEK_ACCOUNT_EMAIL`、`DEEPSEEK_ACCOUNT_PASSWORD`、`DEEPSEEK_BASE_HEADERS_JSON`、`DEEPSEEK_BROWSER_IMPERSONATE`。
+- 可通过 `DEEPSEEK_ACCOUNT_TOKEN_PATH` 将 DeepSeek 登录态保存到独立文件，而不是回写 `config.toml`。
+- `[auth].tokens` 与 `server.api_key` 都可作为本地接口鉴权来源。若 `auth.required = true`，所有 `/v0/*` 和 `/v1/*` 请求都必须携带 `Authorization: Bearer <token>` 或 `X-API-Key: <token>`。
+- **Fail-fast 保护**: 如果 `[server].host` 是非 loopback（如 `0.0.0.0`）且既未启用 `auth.required`、也没有任何有效 token，服务将拒绝启动。
 - CORS 可通过 `[server].cors_*` 配置；为了兼容旧行为，默认仍较宽松，但面向浏览器暴露时应收紧 `cors_origins`。
 - 即便如此，仍建议只监听 `127.0.0.1`（`main.py` 默认值）。
+
+## 生产部署
+
+仓库中的生产运行模型已经统一为三段式：
+
+- `runtime/config.toml`
+  保存非敏感配置
+- `runtime/app.env`
+  保存敏感配置和请求头指纹
+- `runtime/deepseek-session.token`
+  保存运行期刷新的 DeepSeek 登录态
+
+Ubuntu + Docker 部署请优先看：
+
+- [local_prod/README.md](./local_prod/README.md)
+- [local_prod/OPERATIONS.zh-CN.md](./local_prod/OPERATIONS.zh-CN.md)
 
 ## 模型
 
@@ -69,8 +88,10 @@ token = ""                         # 非必须，系统会自动管理（首次�
 
 | 模型 | 说明 |
 |------|------|
-| `deepseek-web-chat` | 标准对话模型，禁用思考 |
-| `deepseek-web-reasoner` | 推理模型，支持思维链 |
+| `deepseek-web-chat` | 快速模式，不开思考 |
+| `deepseek-web-expert` | 专家模式，不开思考 |
+| `deepseek-web-reasoner` | 快速模式 + 深度思考 |
+| `deepseek-web-expert-reasoner` | 专家模式 + 深度思考 |
 
 **注意**：默认禁用内部搜索功能。
 
@@ -119,7 +140,8 @@ OpenAI兼容的对话完成接口，完全支持工具调用和流式响应。�
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `search_enabled` | bool | `false` | 启用 DeepSeek 网页后端搜索功能 |
-| `thinking_enabled` | bool | `true`（reasoner模型），`false`（chat模型） | 开启思考。对 `deepseek-web-chat`：设为 `true` 开启思考输出；对 `deepseek-web-reasoner`：设为 `false` 禁用思考 |
+| `thinking_enabled` | bool | `true`（reasoner模型），`false`（其他） | 开启思考/思维链输出 |
+| `model_type` | string | 由模型名派生 | 覆盖模式：`"default"`（快速模式）或 `"expert"`（专家模式） |
 
 OpenAI SDK 示例：
 ```python

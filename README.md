@@ -37,6 +37,7 @@ uv run python main.py
 host = "127.0.0.1"                  # Recommended: keep loopback-only
 port = 5001
 reload = true
+api_key = ""                        # Legacy single-token compatibility mode (env: DEEPSEEK_WEB_API_KEY)
 cors_origins = ["*"]                 # Recommended: replace with explicit origins for browser clients
 cors_allow_credentials = false
 cors_allow_methods = ["*"]
@@ -45,6 +46,7 @@ pool_size = 10                       # Max concurrent DeepSeek sessions (env: DE
 pool_acquire_timeout = 30.0          # Seconds to wait for a free session before returning 503 (env: DEEPSEEK_WEB_POOL_ACQUIRE_TIMEOUT)
 
 [auth]
+required = false                     # If true, /v0 and /v1 reject requests unless a valid local auth token is provided
 tokens = []                          # Configure one or more tokens to enable auth
 # Example: tokens = ["sk-prod-xxx", "sk-backup-yyy"]
 
@@ -57,11 +59,25 @@ token = ""                         # Optional, system will auto-manage (saved af
 ```
 
 **Security**:
-- `[auth].tokens` is a simple string array. Non-empty array means auth is required; empty array means anonymous access (only safe for loopback).
-- If at least one token is configured, all `/v0/*` and `/v1/*` endpoints require either `Authorization: Bearer <token>` or `X-API-Key: <token>`.
-- **Fail-fast protection**: If `[server].host` is non-loopback (e.g., `0.0.0.0`) and `[auth].tokens` is empty, the server will refuse to start.
+- Production also supports `DEEPSEEK_WEB_AUTH_TOKENS_JSON`, `DEEPSEEK_ACCOUNT_EMAIL`, `DEEPSEEK_ACCOUNT_PASSWORD`, `DEEPSEEK_BASE_HEADERS_JSON`, and `DEEPSEEK_BROWSER_IMPERSONATE` environment variables.
+- Login state can be persisted outside `config.toml` via `DEEPSEEK_ACCOUNT_TOKEN_PATH`.
+- `[auth].tokens` and `server.api_key` are both supported. If `auth.required = true`, `/v0/*` and `/v1/*` require either `Authorization: Bearer <token>` or `X-API-Key: <token>`.
+- **Fail-fast protection**: If `[server].host` is non-loopback (e.g., `0.0.0.0`) and neither `auth.required` nor any effective auth token is configured, the server will refuse to start.
 - CORS is configurable via `[server].cors_*`. The default remains permissive for compatibility, but you should narrow `cors_origins` before exposing browser clients.
 - You should still run the service on `127.0.0.1` unless you intentionally expose it.
+
+## Production Deployment
+
+The repository now treats production as a three-part runtime model:
+
+- `runtime/config.toml` for non-sensitive settings
+- `runtime/app.env` for secrets and request fingerprint headers
+- `runtime/deepseek-session.token` for the refreshed DeepSeek login token
+
+For Ubuntu + Docker deployment, use:
+
+- [local_prod/README.md](./local_prod/README.md)
+- [local_prod/OPERATIONS.zh-CN.md](./local_prod/OPERATIONS.zh-CN.md)
 
 ## Models
 
@@ -69,8 +85,10 @@ Available models via `/v1/models`:
 
 | Model | Description |
 |-------|-------------|
-| `deepseek-web-chat` | Standard chat model, thinking disabled |
-| `deepseek-web-reasoner` | Reasoning model with chain-of-thought thinking |
+| `deepseek-web-chat` | Fast mode (快速模式), thinking off |
+| `deepseek-web-expert` | Expert mode (专家模式), thinking off |
+| `deepseek-web-reasoner` | Fast mode + chain-of-thought thinking |
+| `deepseek-web-expert-reasoner` | Expert mode + chain-of-thought thinking |
 
 **Note**: Internal search functionality is disabled by default (no web search).
 
@@ -119,7 +137,8 @@ OpenAI-compatible chat completions endpoint with full tool calling support and s
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `search_enabled` | bool | `false` | Enable DeepSeek web backend's search feature |
-| `thinking_enabled` | bool | `true` for reasoner model, `false` for chat | Enable thinking. For `deepseek-web-chat`: enables thinking output; for `deepseek-web-reasoner`: set to `false` to disable thinking |
+| `thinking_enabled` | bool | `true` for reasoner model, `false` for others | Enable thinking/chain-of-thought output |
+| `model_type` | string | derived from model name | Override mode: `"default"` (快速模式) or `"expert"` (专家模式) |
 
 Example with OpenAI SDK:
 ```python

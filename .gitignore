@@ -10,3 +10,6 @@ __pycache__
 build
 dist
 config.toml
+local_prod/config.prod.toml
+local_prod/access-info.md
+local_prod/runtime/
